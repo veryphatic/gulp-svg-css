@@ -44,6 +44,9 @@ module.exports = function (options) {
     if (!options.fileExt) {
         options.fileExt = 'css';
     }
+    if(!options.fillColor) {
+        options.fillColor = '';
+    }
 
     /**
      * Returns encoded string of svg file.
@@ -106,6 +109,19 @@ module.exports = function (options) {
         return { width: width, height: height };
     }
 
+
+    /**
+     * Set the global fill color for the content
+     * @param svgContent
+     * @param color
+     * @returns {string}
+     */
+    function setFillColor(svgContent, color) {
+        var doc = new DOMParser().parseFromString(svgContent, 'text/xml');
+        doc.getElementsByTagName('svg')[0].setAttribute('fill', color);
+        return doc.toString();
+    }
+
     var cssRules = [];
 
     return through.obj(function (file, enc, cb) {
@@ -120,6 +136,9 @@ module.exports = function (options) {
         }
 
         var svgContent = file.contents.toString();
+
+        // Set the color
+        svgContent = (options.fillColor !== '') ? setFillColor(svgContent, options.fillColor) : svgContent;
 
         // Put it inside a css file
         var normalizedFileName = path.normalize(path.basename(file.path, '.svg')).toLowerCase();
