@@ -18,6 +18,8 @@ var gutil = require('gulp-util');
 var through = require('through2');
 var path = require('path');
 var DOMParser = require('xmldom').DOMParser;
+var SVGO = require('svgo');
+var svgo = new SVGO();
 
 module.exports = function (options) {
     options = options || {};
@@ -54,17 +56,20 @@ module.exports = function (options) {
      * @param {String} data Contents of svg file.
      */
     function buildSvgDataURI(svgContent) {
-        return svgContent
-            .replace(/^<\?xml.*?>/gmi, '') // Xml declaration
-            .replace(/<\!\-\-(.*(?=\-\->))\-\->/gmi, '') // Comments
-            .replace(/[\r\n]/gmi, '') // Line breaks
-            .replace(/(\r\n|\n|\r)$/, '') // New line end of file
-            .replace(/\t/gmi, ' ') // Tabs (replace with space)
-            .replace(/%/gmi, '%25') // %
-            .replace(/</gmi, '%3C') // <
-            .replace(/>/gmi, '%3E') // >
-            .replace(/#/gmi, '%23') // #
-            .replace(/\"/gmi, '\''); // "
+        // return svgContent
+        //     .replace(/^<\?xml.*?>/gmi, '') // Xml declaration
+        //     .replace(/<\!\-\-(.*(?=\-\->))\-\->/gmi, '') // Comments
+        //     .replace(/[\r\n]/gmi, '') // Line breaks
+        //     .replace(/(\r\n|\n|\r)$/, '') // New line end of file
+        //     .replace(/\t/gmi, ' ') // Tabs (replace with space)
+        //     .replace(/%/gmi, '%25') // %
+        //     .replace(/</gmi, '%3C') // <
+        //     .replace(/>/gmi, '%3E') // >
+        //     .replace(/#/gmi, '%23') // #
+        //     .replace(/\"/gmi, '\''); // "
+        svgo.optimise(svgContent, function(result) {
+            return 'data:image/svg+xml,' + encodeURIComponent(result.data)
+        })
     }
 
     /**
@@ -78,7 +83,7 @@ module.exports = function (options) {
     function buildCssRule(normalizedFileName, encodedSvg, width, height) {
         var cssRule = [];
         cssRule.push(options.cssSelector + options.cssPrefix + normalizedFileName + ' {');
-        cssRule.push('    background-image: url("data:image/svg+xml;charset=utf8, ' + encodedSvg + '");');
+        cssRule.push('    background-image: url(' + encodedSvg + '");');
         if (options.addSize) {
             cssRule.push('    width: ' + width + ';');
             cssRule.push('    height: ' + height + ';');
