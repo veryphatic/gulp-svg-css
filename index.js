@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 'use strict';
 
 var gutil = require('gulp-util');
@@ -22,10 +23,76 @@ var DOMParser = require('xmldom').DOMParser;
 var SVGO = require('svgo');
 var svgo = new SVGO();
 
-module.exports = function (options) {
-    options = options || {};
+
+/**
+ * Set the global fill color for the content
+ * @param svgContent
+ * @param color
+ * @returns {string}
+ */
+function setFillColor(svgContent, color) {
+    const doc = new DOMParser().parseFromString(svgContent, 'text/xml');
+    doc.getElementsByTagName('svg')[0].setAttribute('fill', color);
+    return doc.toString();
+}
+
+
+/**
+ * Returns css rule for svg file.
+ * @method buildCssRule
+ * @param {String} normalizedFileName rule for svg file.
+ * @param {String} encodedSvg Encoded svg content.
+ * @param {String} width Image width.
+ * @param {String} height Image height.
+ */
+function buildCssRule(normalizedFileName, color, encodedSvg, width, height, options) {
+
+    var dimensions = (options.addSize) ? `width:${width}; height:${height};` : ``;
+
+    var cssRule = `
+        ${options.cssSelector}${options.cssPrefix}${normalizedFileName}${color.replace('#','')} {
+            background-image: url("${encodedSvg}");
+            ${dimensions}
+        }
+    `;
+
+    return cssRule;
+}
+
+
+/**
+ * Get svg image dimensions.
+ * @method getDimensions
+ * @param {String} data Contents of svg file.
+ */
+function getDimensions(svgContent) {
+    var doc = new DOMParser().parseFromString(svgContent, 'text/xml');
+    var svgel = doc.getElementsByTagName('svg')[0];
+    var width = svgel.getAttribute('width');
+    var height = svgel.getAttribute('height');
+
+    if (width && !isNaN(width)) {
+        width = width + 'px';
+    }
+
+    if (height && !isNaN(height)) {
+        height = height + 'px';
+    }
+
+    return { width: width, height: height };
+}
+
+
+/**
+ * Plugin
+ * @returns {*}
+ */
+module.exports = function(options) {
 
     // Init default options
+
+    options = options || {};
+
     if (!options.fileName) {
         options.fileName = 'icons';
     }
@@ -52,79 +119,11 @@ module.exports = function (options) {
     }
 
 
-    /**
-     * Returns css rule for svg file.
-     * @method buildCssRule
-     * @param {String} normalizedFileName rule for svg file.
-     * @param {String} encodedSvg Encoded svg content.
-     * @param {String} width Image width.
-     * @param {String} height Image height.
-     */
-    function buildCssRule(normalizedFileName, encodedSvg, width, height) {
+    // Store for our svgFiles
+    var svgFiles = [];
 
-        var dimensions = (options.addSize) ? `width:${width}; height:${height}` : ``;
+    return through.obj( function(file, enc, cb) {
 
-        var cssRule = `
-            ${options.cssSelector} ${options.cssPrefix} ${normalizedFileName} {
-                background-image: url(" ${encodedSvg} ");
-                ${dimensions}
-            }
-        `;
-
-        // var cssRule = [];
-        // cssRule.push(`${options.cssSelector} ${options.cssPrefix} ${normalizedFileName} {`);
-        // cssRule.push(`background-image: url("${encodedSvg}");`);
-        //
-        // if (options.addSize) {
-        //     cssRule.push(`width:${width};`);
-        //     cssRule.push(`height:${height};`);
-        // }
-        // cssRule.push('}');
-        return cssRule; //.join('\n');
-    }
-
-
-    /**
-     * Get svg image dimensions.
-     * @method getDimensions
-     * @param {String} data Contents of svg file.
-     */
-    function getDimensions(svgContent) {
-        var doc = new DOMParser().parseFromString(svgContent, 'text/xml');
-        var svgel = doc.getElementsByTagName('svg')[0];
-        var width = svgel.getAttribute('width');
-        var height = svgel.getAttribute('height');
-
-        if (width && !isNaN(width)) {
-            width = width + 'px';
-        }
-
-        if (height && !isNaN(height)) {
-            height = height + 'px';
-        }
-
-        return {width: width, height: height};
-    }
-
-
-    /**
-     * Set the global fill color for the content
-     * @param svgContent
-     * @param color
-     * @returns {string}
-     */
-    function setFillColor(svgContent, colors) {
-        colors.forEach((item, key) => {
-            const doc = new DOMParser().parseFromString(svgContent, 'text/xml');
-            doc.getElementsByTagName('svg')[0].setAttribute('fill', item);
-            return doc.toString();
-        });
-    }
-
-
-    var cssRules = [];
-
-    return through.obj((file, enc, cb) => {
         if (file.isNull()) {
             cb(null, file);
             return;
@@ -135,10 +134,11 @@ module.exports = function (options) {
             return;
         }
 
+        // Get the file contents
         var svgContent = file.contents.toString();
 
-        // Set the color
-        svgContent = (options.fillColors.length > 0) ? setFillColor(svgContent, options.fillColors) : svgContent;
+        // Get dimensions
+        var dimensions = getDimensions(svgContent);
 
         // Put it inside a css file
         var normalizedFileName = path.normalize(path.basename(file.path, '.svg')).toLowerCase();
@@ -146,30 +146,67 @@ module.exports = function (options) {
         // Replace dots / spaces with hypens inside file name
         normalizedFileName = normalizedFileName.replace(/(\.|\s)/gi, '-');
 
-        // Encode svg data
-        svgo.optimize(svgContent, (result) => {
-            // console.log(result);
-            var encodedSvg = 'data:image/svg+xml,' + encodeURIComponent(result.data);
+        // Create multiple copies of the file for each color
+        if (options.fillColors.length > 0) {
 
-            // Get dimensions
-            var dimensions = getDimensions(svgContent);
+            var encodedSvg = [];
 
-            // Push rule
-            cssRules.push(buildCssRule(normalizedFileName, encodedSvg,
-                dimensions.width || options.defaultWidth, dimensions.height || options.defaultHeight));
+            options.fillColors.forEach( (color, key) => {
 
-            // Don't pipe svg image
-            cb();
+                // Color the svg
+                var coloredSVG = setFillColor(svgContent, color);
 
-        })
+                // Optimise the svg data
+                svgo.optimize(coloredSVG, (result) => {
+
+                    encodedSvg.push(`data:image/svg+xml,${encodeURIComponent(result.data)}`);
+
+                    if (key === options.fillColors.length - 1) {
+
+                        // Push each rule into the array
+                        encodedSvg.forEach( (rule, id) => {
+                            var colorClass = `.${options.fillColors[id].replace('#','')}`;
+                            svgFiles.push(buildCssRule(normalizedFileName, colorClass, rule, dimensions.width || options.defaultWidth, dimensions.height || options.defaultHeight, options));
+                        });
+
+                        // Next
+                        cb();
+                    }
+
+                });
 
 
-    }, (cb) => {
-        const cssFile = new gutil.File({
-            path: options.fileName + '.' + options.fileExt,
-            contents: new Buffer(cssRules.join('\n'))
+            });
+        }
+
+        else {
+
+            // Optimise the svg data
+            svgo.optimize(svgContent, (result) => {
+
+                var rule = `data:image/svg+xml,${encodeURIComponent(result.data)}`;
+
+                // Push each rule into the array
+                svgFiles.push(buildCssRule(normalizedFileName, '', rule, dimensions.width || options.defaultWidth, dimensions.height || options.defaultHeight, options));
+
+                // Next
+                cb();
+
+            });
+
+        }
+
+
+
+    }, function(cb) {
+
+        var svgFile = new gutil.File({
+            path: 'svg.css',
+            contents: new Buffer(svgFiles.join('\n'))
         });
-        this.push(cssFile);
+
+        this.push(svgFile);
+
         cb();
     });
 };
